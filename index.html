@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home- Classroom</title>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#182438;--panel2:#202f47;--text:#f4f7fb;--muted:#aab8cb;--accent:#91a8ff;--border:#31425d}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1e3150 0,#101827 55%);font:16px/1.5 system-ui,sans-serif;color:var(--text);min-height:100vh}
+header{text-align:center;padding:28px 18px 20px;border-bottom:1px solid var(--border)}h1{margin:0;font-size:clamp(2rem,5vw,3rem);letter-spacing:-.04em}header p{color:var(--muted);margin:8px 0 0}
+main{max-width:1100px;margin:auto;padding:24px 18px 48px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}input,textarea,button{font:inherit;border-radius:10px;border:1px solid var(--border);padding:11px 13px}input,textarea{background:#0d1522;color:var(--text);width:100%}.toolbar input{flex:1;min-width:180px}button{cursor:pointer;background:var(--accent);border-color:transparent;color:#101827;font-weight:700}button.secondary{background:var(--panel2);border-color:var(--border);color:var(--text)}.status{padding:12px 14px;background:var(--panel);border:1px solid var(--border);border-radius:12px;color:var(--muted);margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}.card{background:linear-gradient(160deg,var(--panel),#141f31);border:1px solid var(--border);border-radius:16px;padding:17px;min-height:150px;display:flex;flex-direction:column;gap:10px}.card h3{margin:0;overflow-wrap:anywhere}.card p{margin:0;color:var(--muted);font-size:.92rem}.card .actions{display:flex;gap:8px;margin-top:auto}.empty{border:1px dashed var(--border);border-radius:16px;padding:30px;text-align:center;color:var(--muted);grid-column:1/-1}details{margin:22px 0;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:17px}summary{font-weight:750;cursor:pointer;font-size:1.1rem}form{display:grid;gap:12px;margin-top:15px}label{display:grid;gap:6px;color:var(--muted);font-size:.93rem}textarea{min-height:170px;resize:vertical;font:13px/1.5 ui-monospace,monospace}.note,footer{color:var(--muted);font-size:.88rem}.viewer{position:fixed;inset:0;background:#070b12ed;z-index:5;padding:16px;display:none;flex-direction:column;gap:10px}.viewer.open{display:flex}.viewerbar{display:flex;gap:12px;align-items:center}.viewerbar strong{flex:1;overflow-wrap:anywhere}iframe{background:white;border:0;border-radius:12px;flex:1;width:100%}footer{text-align:center;padding:16px}
+</style>
+</head>
+<body>
+<header><h1>Home- Classroom</h1><p>A community shelf for browser games</p></header>
+<main>
+<div class="status" id="status">Community mode needs to be connected to your Supabase project. Follow SETUP.txt included with this website.</div>
+<div class="toolbar"><input id="search" type="search" placeholder="Search community games…" aria-label="Search games"><button id="refresh">Refresh games</button><button id="submitBtn">＋ Submit a game</button><button id="toggleSubmissions" class="secondary" type="button">Lock submissions</button></div>
+<section id="games" class="grid"><div class="empty">Connect your shared database to load community games.</div></section>
+<details id="editor"><summary>Submit a game</summary>
+<form id="gameForm">
+<label>Game name<input id="gameName" required maxlength="70" placeholder="e.g. Pixel Runner"></label>
+<label>Description (optional)<input id="gameDesc" maxlength="140" placeholder="A quick arcade game"></label>
+<label>Your HTML code<textarea id="gameCode" required spellcheck="false" maxlength="150000" placeholder="Paste your complete HTML game here…"></textarea></label>
+<button type="submit">Submit for the community</button>
+</form>
+<p class="note">Only submit code you created or have permission to share. Submitted HTML can contain scripts, so games run inside a sandboxed frame. Community submissions are public. The site owner should review and remove inappropriate or unsafe games.</p>
+</details>
+
+</main>
+<footer>Home- Classroom · Community game library</footer>
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Game player"><div class="viewerbar"><strong id="playingTitle">Game</strong><button class="secondary" id="closeGame">Close game</button></div><iframe id="player" title="Community game" sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer"></iframe></div>
+<!-- Setup: replace both placeholders with your Supabase Project URL and anon/public key. Never put a service_role key here. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE";
+const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("PASTE_") && !SUPABASE_ANON_KEY.includes("PASTE_");
+// This browser-only switch is a convenience, not an owner-wide lock.
+// To prevent everyone from submitting, disable INSERT in Supabase policies (see SETUP.txt). 
+let submissionsLocked = localStorage.getItem('home-classroom-submissions-locked') === 'true';
+const $ = id => document.getElementById(id);
+let db = null, games = [];
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function message(s){$('status').textContent=s;}
+function updateSubmissionLock(){
+ $('submitBtn').disabled=submissionsLocked;
+ $('submitBtn').textContent=submissionsLocked?'Submissions locked':'＋ Submit a game';
+ $('toggleSubmissions').textContent=submissionsLocked?'Unlock submissions (this browser)':'Lock submissions';
+ $('editor').style.opacity=submissionsLocked?'0.65':'1';
+ $('gameForm').querySelectorAll('input,textarea,button').forEach(el=>el.disabled=submissionsLocked);
+ if(submissionsLocked) $('editor').open=false;
+}
+
+function render(){
+ const q=$('search').value.trim().toLowerCase();
+ const shown=games.filter(g=>(g.name+' '+(g.description||'')).toLowerCase().includes(q));
+ $('games').innerHTML=shown.length?shown.map(g=>`<article class="card"><h3>${esc(g.name)}</h3><p>${esc(g.description||'Community HTML game')}</p><div class="actions"><button data-play="${esc(g.id)}">Play</button></div></article>`).join(''):'<div class="empty">No games found yet. Submit the first one!</div>';
+}
+async function loadGames(){
+ if(!db){message('Database not connected yet. Open SETUP.txt and follow the setup steps.');return;}
+ message('Loading community games…');
+ const {data,error}=await db.from('community_games').select('id,name,description,html_code,created_at').order('created_at',{ascending:false}).limit(200);
+ if(error){message('Could not load games: '+error.message+' — check the setup and database policies.');return;}
+ games=data||[];render();message(`Loaded ${games.length} community game(s). Submissions are shared with everyone who visits this site.`);
+}
+if(configured && window.supabase){db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);message('Connecting to community database…');loadGames();}
+$('search').addEventListener('input',render);
+$('refresh').addEventListener('click',loadGames);
+$('submitBtn').addEventListener('click',()=>{if(submissionsLocked)return;$('editor').open=true;$('editor').scrollIntoView({behavior:'smooth',block:'start'});$('gameName').focus();});
+$('toggleSubmissions').addEventListener('click',()=>{
+ submissionsLocked=!submissionsLocked;
+ localStorage.setItem('home-classroom-submissions-locked',String(submissionsLocked));
+ updateSubmissionLock();
+ message(submissionsLocked
+  ? 'Submissions are disabled in this browser only. To lock submissions for everyone, remove/disable the INSERT policy in Supabase as described in SETUP.txt.'
+  : 'Submissions are enabled in this browser. The shared database still controls whether public submissions are allowed.');
+});
+$('gameForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ if(submissionsLocked){message('Submissions are locked in this browser.');return;}
+ if(!db){message('Database not connected. Follow SETUP.txt first.');return;}
+ const name=$('gameName').value.trim(),description=$('gameDesc').value.trim(),html_code=$('gameCode').value;
+ if(!name||!html_code.trim())return;
+ const button=e.submitter;button.disabled=true;button.textContent='Submitting…';
+ const {error}=await db.from('community_games').insert({name,description,html_code});
+ button.disabled=false;button.textContent='Submit for the community';
+ if(error){message('Submission failed: '+error.message);return;}
+ $('gameForm').reset();$('editor').open=false;message('Game submitted! It should now appear in the community list.');await loadGames();
+});
+$('games').addEventListener('click',e=>{
+ const b=e.target.closest('[data-play]');if(!b)return;
+ const g=games.find(x=>String(x.id)===b.dataset.play);if(!g)return;
+ $('playingTitle').textContent=g.name;$('player').srcdoc=g.html_code;$('viewer').classList.add('open');$('closeGame').focus();
+});
+function close(){ $('player').srcdoc='';$('viewer').classList.remove('open');}
+$('closeGame').addEventListener('click',close);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('viewer').classList.contains('open'))close();});
+</script>
+</body></html>
